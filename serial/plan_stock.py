@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Find the newest stock MeshCore release (tags repeater-/room-server-/companion-vX.Y.Z)
 plus the EasySkyMesh power-saving source of its latest release, and decide whether
-"vX.Y.Z-powersaving-serial" (port), "vX.Y.Z-psNN-serial" (EasySkyMesh release source)
+"vX.Y.Z-powersaving" (port), "vX.Y.Z-psNN-serial" (EasySkyMesh release source)
 or "vX.Y.Z-serial" (no power saving) needs building. Writes outputs to $GITHUB_OUTPUT."""
 import hashlib, json, os, re, sys, urllib.request, urllib.error
 
@@ -85,7 +85,12 @@ elif USE_ESM:
     esm = {"repo": ESM_SOURCE, "ref": ref, "sha": c["sha"], "release": rel["tag_name"] if rel else "",
            "release_url": rel["html_url"] if rel else "", "short": f"ps{mm.group(1)}" if mm else "ps"}
 
-tag = f"{version}-{esm['short']}-serial" if esm else f"{version}-serial"
+if PS_MODE == "port":
+    tag = f"{version}-powersaving"        # serial.ondemand + headless are features of this build
+elif esm:
+    tag = f"{version}-{esm['short']}-serial"
+else:
+    tag = f"{version}-serial"
 mine = api(f"/repos/{REPO}/releases/tags/{tag}", ok404=True)
 sig = "source-commits: " + ",".join(f"{t['type']}={t['sha']}" for t in types) + (f" · esm={esm['repo']}@{esm['sha']}" if esm else " · esm=none") + f" · patch-id: {patch_id}"
 build = FORCE or not (mine and sig in (mine.get("body") or ""))

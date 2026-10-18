@@ -1,4 +1,4 @@
-> **This fork**: branch `powersaving-serial` = MeshCore + EasySkyMesh power saving + **serial.ondemand** (the serial console keeps working during power saving) + headless Heltec V3 builds. Downloads are in [Releases](https://github.com/just-stuff-tm/MeshCore/releases) (`vX.Y.Z-powersaving-serial`). How it works and how to build: [serial/README.md](serial/README.md).
+> **This fork**: branch `powersaving-serial` = MeshCore + EasySkyMesh power saving + **serial.ondemand** (the serial console keeps working during power saving) + headless Heltec V3 builds. Downloads are in [Releases](https://github.com/just-stuff-tm/MeshCore/releases) (`vX.Y.Z-powersaving`). How it works and how to build: [serial/README.md](serial/README.md).
 
 ## About MeshCore
 

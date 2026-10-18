@@ -36,9 +36,9 @@ What it does:
 - they include the same power saving as the normal builds.
 
 ## Releases
-- Release tag `vX.Y.Z-powersaving-serial`, e.g. `v1.18.0-powersaving-serial`. Every env MeshCore releases is built (about 350 repeater, room server and companion boards), plus the headless Heltec V3 envs and `SHA256SUMS.txt`. The release notes list the exact MeshCore and power-saving commits.
-- File names: `Heltec_v3_repeater-v1.18.0-powersaving-serial-<commit>.bin` is the update image (keeps identity and settings). `...-merged.bin` is a fresh install (erases). nRF52 boards get `.zip` (DFU) and `.uf2`.
-- Firmware version shown by `ver`: `v1.18.0-powersaving-serial-<commit>`.
+- Release tag `vX.Y.Z-powersaving`, e.g. `v1.18.0-powersaving` (title "MeshCore vX.Y.Z + power saving"; serial.ondemand and the headless builds are listed as features). Every env MeshCore releases is built (about 350 repeater, room server and companion boards), plus the headless Heltec V3 envs and `SHA256SUMS.txt`. The release notes list the exact MeshCore and power-saving commits.
+- File names: `Heltec_v3_repeater-v1.18.0-powersaving-<commit>.bin` is the update image (keeps identity and settings). `...-merged.bin` is a fresh install (erases). nRF52 boards get `.zip` (DFU) and `.uf2`.
+- Firmware version shown by `ver`: `v1.18.0-powersaving-<commit>`.
 
 ## When MeshCore or EasySkyMesh releases
 Press **Run workflow** (Actions → "Serial builds" → Run workflow). You can press **Sync fork** on `main` first to keep the mirror current, but the build doesn't need it: it fetches the newest MeshCore release itself. There is no schedule; builds only run when you press Run workflow or push to `powersaving-serial`.

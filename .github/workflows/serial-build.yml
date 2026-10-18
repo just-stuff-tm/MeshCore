@@ -7,7 +7,8 @@ name: Serial builds (MeshCore + EasySkyMesh power saving + serial.ondemand)
 #    (IoTThinks/EasySkyMesh release PowerSaving17.1 -> IoTThinks/MeshCore branch PowerSaving-v17).
 #    On merge conflicts the run fails, lists the conflicting files and opens an issue,
 # 3. adds serial.ondemand and the headless Heltec V3 envs (serial/apply-serial.py),
-# 4. builds every env and publishes release "vX.Y.Z-powersaving-serial".
+# 4. builds every env and publishes release "vX.Y.Z-powersaving" (serial.ondemand and the
+#    headless envs are listed as features).
 # Runs on demand (Actions → Run workflow) and on every push to powersaving-serial (the default
 # branch). After "Sync fork" on main, press Run workflow. The scripts always come from
 # the "powersaving-serial" branch. It only builds when
@@ -205,7 +206,7 @@ jobs:
           ESM_REL: ${{ needs.plan.outputs.esm_release }}
           ESM_REL_URL: ${{ needs.plan.outputs.esm_release_url }}
         run: |
-          if [ "$ESM_REPO" = "$GITHUB_REPOSITORY" ]; then TITLE="MeshCore ${VER} + power saving (EasySkyMesh) + serial.ondemand"
+          if [ "$ESM_REPO" = "$GITHUB_REPOSITORY" ]; then TITLE="MeshCore ${VER} + power saving"
           elif [ -n "$ESM_SHA" ]; then TITLE="MeshCore ${VER} + EasySkyMesh ${ESM_REL:-$ESM_REF} + serial.ondemand"
           else TITLE="MeshCore ${VER} + serial.ondemand"; fi
           {
@@ -217,11 +218,14 @@ jobs:
             elif [ -n "$ESM_SHA" ]; then
               echo "- EasySkyMesh power saving${ESM_REL:+ ([${ESM_REL}](${ESM_REL_URL}))}: [${ESM_REPO}@${ESM_REF}](https://github.com/${ESM_REPO}/commit/${ESM_SHA}) (${ESM_SHA:0:7}), merged in"
             fi
-            echo "- Headless Heltec V3 builds (\`Heltec_v3_*_headless\`): no display, OLED held off from boot"
+            echo
+            echo "### Features"
             echo
             echo "- **serial.ondemand**: with \`powersaving on\`, a byte on the serial port (UART0 RX) wakes the board, and it stays awake 15 s after the last byte, so the serial CLI keeps working. Send a CR or LF first, wait about 100 ms, then the command."
-            echo "- \`set serial.ondemand on|off\` (default **on**), \`get serial.ondemand\`. Works over serial and remote admin. **off** = stock behaviour."
-            echo "- Applies to ESP32 boards whose serial port is a UART (e.g. Heltec V3). nRF52 and native-USB ESP32 boards are unchanged."
+            echo "  - \`set serial.ondemand on|off\` (default **on**), \`get serial.ondemand\`. Works over serial and remote admin. **off** = stock behaviour."
+            echo "  - Applies to ESP32 boards whose serial port is a UART (e.g. Heltec V3). nRF52 and native-USB ESP32 boards are unchanged."
+            echo "- **Headless Heltec V3 builds** (\`Heltec_v3_*_headless\`): no display, OLED held off from boot"
+            echo
             echo "- Files: ESP32 \`<board>-${FW}-<commit>.bin\` = update (keeps identity and settings), \`...-merged.bin\` = fresh install (erases). nRF52: \`.zip\` (DFU) / \`.uf2\`."
             echo
             if [ -s failed.txt ]; then echo "Not built this time: $(tr '\n' ' ' < failed.txt)"; echo; fi
