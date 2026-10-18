@@ -1,3 +1,5 @@
+> **This fork**: branch `powersaving-serial` = MeshCore + EasySkyMesh power saving + **serial.ondemand** (the serial console keeps working during power saving) + headless Heltec V3 builds. Downloads are in [Releases](https://github.com/just-stuff-tm/MeshCore/releases) (`vX.Y.Z-powersaving-serial`). How it works and how to build: [serial/README.md](serial/README.md).
+
 ## About MeshCore
 
 MeshCore is a lightweight, portable C++ library that enables multi-hop packet routing for embedded projects using LoRa and other packet radios. It is designed for developers who want to create resilient, decentralized communication networks that work without the internet.
