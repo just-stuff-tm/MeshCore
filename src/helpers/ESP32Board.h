@@ -2,6 +2,7 @@
 
 #include <MeshCore.h>
 #include <Arduino.h>
+#include <helpers/SerialWake.h>  // serial-in-PowerSaving
 
 #ifndef USER_BTN_PRESSED
 #define USER_BTN_PRESSED LOW
@@ -83,6 +84,7 @@ public:
     }
 
     // Set GPIO wakeup
+    if (SerialWake::beforeSleep()) { delay(1); return; }  // serial CLI in use (serial-in-PowerSaving)
     gpio_num_t wakeupPin = (gpio_num_t)getIRQGpio();
 
     // Configure timer wakeup
@@ -109,6 +111,7 @@ public:
 
     // MCU enters light sleep
     esp_light_sleep_start();
+    SerialWake::afterSleep();  // serial-in-PowerSaving
 
     // Avoid ISR flood during wakeup due to HIGH LEVEL interrupt
     gpio_wakeup_disable(wakeupPin);
