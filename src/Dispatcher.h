@@ -98,6 +98,7 @@ public:
   virtual Packet* removeOutboundByIdx(int i) = 0;
   virtual void queueInbound(Packet* packet, uint32_t scheduled_for) = 0;
   virtual Packet* getNextInbound(uint32_t now) = 0;
+  virtual int getInboundTotal() const { return 0; }   // PowerSaving variant: packets waiting in the rx-delay queue
 };
 
 typedef uint32_t  DispatcherAction;
@@ -180,6 +181,7 @@ public:
   void releasePacket(Packet* packet);
   void sendPacket(Packet* packet, uint8_t priority, uint32_t delay_millis=0);
 
+  bool isTransmitting() const { return outbound != NULL; }   // PowerSaving variant: TX started, TX-done not yet seen
   unsigned long getTotalAirTime() const { return total_air_time; }
   unsigned long getReceiveAirTime() const {return rx_air_time; }
   unsigned long getRemainingTxBudget() const { return tx_budget_ms; }
