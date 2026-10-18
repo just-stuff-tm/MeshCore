@@ -42,7 +42,7 @@ What it does:
 
 ## How to flash
 
-**Web flasher (ESP32 and nRF52).** Open the official MeshCore web flasher, <https://flasher.meshcore.co.uk>, in **Chrome or Edge** on a desktop computer (it uses Web Serial; other browsers can't flash). Click **Custom Firmware**, pick the file you downloaded from the release, click **Flash!**, and choose the board's serial port when the browser asks.
+**Web flasher (ESP32 and nRF52).** Open the official MeshCore web flasher, <https://flasher.meshcore.io>, in **Chrome or Edge** on a desktop computer (it uses Web Serial; other browsers can't flash). Click **Custom Firmware**, pick the file you downloaded from the release, click **Flash!**, and choose the board's serial port when the browser asks.
 
 - **ESP32 (Heltec V3 and other ESP32 boards)**
   - **Update, keeps identity and settings:** the plain file, e.g. `Heltec_v3_repeater-v1.18.0-powersaving-<commit>.bin` (no `-merged`). Leave **Erase device** unticked.
