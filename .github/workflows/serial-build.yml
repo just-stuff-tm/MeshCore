@@ -228,6 +228,27 @@ jobs:
             echo
             echo "- Files: ESP32 \`<board>-${FW}-<commit>.bin\` = update (keeps identity and settings), \`...-merged.bin\` = fresh install (erases). nRF52: \`.zip\` (DFU) / \`.uf2\`."
             echo
+            sed "s/__FW__/${FW}/g" <<'FLASH'
+          ### How to flash
+
+          **Web flasher (ESP32 and nRF52).** Open the official MeshCore web flasher, <https://flasher.meshcore.co.uk>, in **Chrome or Edge** on a desktop computer (it uses Web Serial; other browsers can't flash). Click **Custom Firmware**, pick the file you downloaded from the release, click **Flash!**, and choose the board's serial port when the browser asks.
+
+          - **ESP32 (Heltec V3 and other ESP32 boards)**
+            - **Update, keeps identity and settings:** the plain file, e.g. `Heltec_v3_repeater-__FW__-<commit>.bin` (no `-merged`). Leave **Erase device** unticked.
+            - **Fresh install, erases identity (keys) and all settings:** the `-merged.bin` file. The flasher warns you and turns on erasing for it.
+            - If the port doesn't appear, hold the **BOOT** button (labelled PRG on the Heltec V3) while plugging in the USB cable, then try again.
+          - **nRF52 (RAK4631, Heltec T114, ...)**
+            - `.zip` (DFU): flash it with **Custom Firmware** in the web flasher. If the board isn't in DFU mode yet, click **Enter DFU mode** first. Nordic/Adafruit DFU tools (e.g. `adafruit-nrfutil`) also take this file.
+            - `.uf2`: put the board into its bootloader (usually a double press of reset) so it shows up as a USB drive, then drag the `.uf2` file onto that drive.
+          - **Headless Heltec V3** (`Heltec_v3_repeater_headless`, `Heltec_v3_room_server_headless`, `Heltec_v3_companion_radio_usb_headless`, `Heltec_v3_companion_radio_ble_headless`): flash them exactly like the normal Heltec V3 files (plain `.bin` to update, `-merged.bin` for a fresh install). No display; the OLED is held off from boot to save power.
+
+          **After flashing** (serial console at 115200 baud, or remote admin): `powersaving on` turns power saving on (a fresh install already defaults to on); `get serial.ondemand` should answer `on`, meaning the serial console keeps working while the board sleeps.
+
+          ### Remote updates and dashboard (T-SIM)
+
+          [tsim-remote-updater](https://github.com/just-stuff-tm/tsim-remote-updater) is a dashboard for a solar repeater with a LilyGO T-SIM (LTE) wired to the Heltec's serial port: telemetry, mesh status, repeater settings and the CLI, plus **over-the-air firmware updates over LTE**. These releases are its default update source. Press **Check for updates**, then **Update Heltec**; it always uses the plain `Heltec_v3_repeater-...bin` (never `-merged`), so identity and settings are kept. serial.ondemand is what lets the T-SIM reach the repeater's CLI while power saving is on.
+          FLASH
+            echo
             if [ -s failed.txt ]; then echo "Not built this time: $(tr '\n' ' ' < failed.txt)"; echo; fi
             echo "<sub>${SIG}</sub>"
           } > notes.md
