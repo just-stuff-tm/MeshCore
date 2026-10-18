@@ -2,6 +2,11 @@
 
 #include "BaseSerialInterface.h"
 
+// Some board libraries (e.g. meshsolar's utils/logger.h on Heltec mesh_solar) #define NONE;
+// keep it from breaking InterfaceType::NONE below.
+#pragma push_macro("NONE")
+#undef NONE
+
 #ifndef MAX_INTERFACES
   // ble, usb, wifi, ethernet
   #define MAX_INTERFACES 4
@@ -215,3 +220,5 @@ public:
   }
 
 };
+
+#pragma pop_macro("NONE")

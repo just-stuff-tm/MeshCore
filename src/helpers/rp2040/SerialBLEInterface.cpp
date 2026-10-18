@@ -164,6 +164,11 @@ bool SerialBLEInterface::isConnected() const {
   return _isEnabled && _tx.conHandle() != 0 && _tx.notifyEnabled();
 }
 
+// PowerSaving variant
+bool SerialBLEInterface::isReadBusy() const {
+  return false;
+}
+
 bool SerialBLEInterface::isWriteBusy() const {
   return send_queue_len >= (FRAME_QUEUE_SIZE * 2 / 3);
 }
