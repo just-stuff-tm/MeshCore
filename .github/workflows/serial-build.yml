@@ -1,0 +1,277 @@
+name: Serial builds (MeshCore + EasySkyMesh power saving + serial.ondemand)
+
+# 1. takes the newest stock MeshCore release (meshcore-dev/MeshCore, tags
+#    repeater-/room-server-/companion-vX.Y.Z),
+# 2. merges the power saving: by default our port of EasySkyMesh's power saving (branch
+#    "powersaving"); optionally the source of EasySkyMesh's latest release instead
+#    (IoTThinks/EasySkyMesh release PowerSaving17.1 -> IoTThinks/MeshCore branch PowerSaving-v17).
+#    On merge conflicts the run fails, lists the conflicting files and opens an issue,
+# 3. adds serial.ondemand and the headless Heltec V3 envs (serial/apply-serial.py),
+# 4. builds every env and publishes release "vX.Y.Z-powersaving-serial".
+# Runs on demand (Actions → Run workflow) and on every push to powersaving-serial (the default
+# branch). After "Sync fork" on main, press Run workflow. The scripts always come from
+# the "powersaving-serial" branch. It only builds when
+# MeshCore, EasySkyMesh or the patch changed; otherwise the run ends after a few seconds.
+
+on:
+  push:
+    branches: [powersaving-serial]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Stock version to build, e.g. v1.18.0 (blank = newest release)'
+        required: false
+      force:
+        description: 'Rebuild even if the release already exists'
+        type: boolean
+        default: false
+      powersaving:
+        description: 'Power saving: port = our port (branch powersaving); easyskymesh-latest = merge the source of EasySkyMesh''s latest release; off = stock + serial.ondemand only'
+        type: choice
+        options: [port, easyskymesh-latest, off]
+        default: port
+      esm_ref:
+        description: 'Override the power-saving source: a branch/tag/commit (in this repo for port, in IoTThinks/MeshCore for easyskymesh-latest)'
+        required: false
+      esm_conflicts:
+        description: 'On merge conflicts'
+        type: choice
+        options: [fail, prefer-easyskymesh]
+        default: fail
+
+permissions:
+  contents: write
+  issues: write
+
+concurrency:
+  group: serial-build
+  cancel-in-progress: false
+
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    outputs:
+      build: ${{ steps.plan.outputs.build }}
+      tag: ${{ steps.plan.outputs.tag }}
+      version: ${{ steps.plan.outputs.version }}
+      upstream: ${{ steps.plan.outputs.upstream }}
+      types: ${{ steps.plan.outputs.types }}
+      sig: ${{ steps.plan.outputs.sig }}
+      fwver: ${{ steps.plan.outputs.fwver }}
+      esm_repo: ${{ steps.plan.outputs.esm_repo }}
+      esm_ref: ${{ steps.plan.outputs.esm_ref }}
+      esm_sha: ${{ steps.plan.outputs.esm_sha }}
+      esm_release: ${{ steps.plan.outputs.esm_release }}
+      esm_release_url: ${{ steps.plan.outputs.esm_release_url }}
+      conflicts: ${{ steps.matrix.outputs.conflicts }}
+      matrix: ${{ steps.matrix.outputs.matrix }}
+      envs: ${{ steps.matrix.outputs.envs }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: powersaving-serial
+          path: fork
+      - name: Find newest MeshCore and EasySkyMesh releases
+        id: plan
+        env:
+          GH_TOKEN: ${{ github.token }}
+          IN_VERSION: ${{ inputs.version }}
+          IN_FORCE: ${{ inputs.force }}
+          IN_PS: ${{ inputs.powersaving }}
+          IN_ESM_REF: ${{ inputs.esm_ref }}
+        run: python3 fork/serial/plan_stock.py
+      - uses: actions/setup-python@v5
+        if: steps.plan.outputs.build == 'true'
+        with:
+          python-version: '3.13'
+      - name: Merge MeshCore + EasySkyMesh, apply serial.ondemand, list envs (fails on conflicts)
+        id: matrix
+        if: steps.plan.outputs.build == 'true'
+        env:
+          TYPES: ${{ steps.plan.outputs.types }}
+          UP: ${{ steps.plan.outputs.upstream }}
+          ESM_REPO: ${{ steps.plan.outputs.esm_repo }}
+          ESM_SHA: ${{ steps.plan.outputs.esm_sha }}
+          ESM_MODE: ${{ inputs.esm_conflicts == 'prefer-easyskymesh' && 'prefer' || 'fail' }}
+        run: |
+          pip install -q --upgrade platformio
+          set +e
+          M=$(python3 fork/serial/matrix_stock.py "$TYPES" 6); rc=$?
+          set -e
+          if [ "$rc" = 3 ]; then
+            echo "conflicts=$(paste -sd, conflicts.txt)" >> "$GITHUB_OUTPUT"
+            { echo "## Merge conflict: EasySkyMesh vs MeshCore"; echo; echo "Conflicting files:"; sed 's/^/- /' conflicts.txt; } >> "$GITHUB_STEP_SUMMARY"
+            echo "::error::merging EasySkyMesh into MeshCore conflicts in $(wc -l < conflicts.txt) files; nothing built"
+            exit 1
+          fi
+          [ "$rc" = 0 ] || exit "$rc"
+          echo "matrix=$M" >> "$GITHUB_OUTPUT"
+          echo "envs=$(cat envs-all.json)" >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: plan
+    if: needs.plan.outputs.build == 'true'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(needs.plan.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: powersaving-serial
+          path: fork
+      - name: Merge MeshCore + EasySkyMesh and apply serial.ondemand
+        env:
+          UP: ${{ needs.plan.outputs.upstream }}
+          ESM_REPO: ${{ needs.plan.outputs.esm_repo }}
+          ESM_SHA: ${{ needs.plan.outputs.esm_sha }}
+          ESM_MODE: ${{ inputs.esm_conflicts == 'prefer-easyskymesh' && 'prefer' || 'fail' }}
+        run: python3 fork/serial/source.py mc "${{ matrix.sha }}"
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/pip
+            ~/.platformio/.cache
+          key: ${{ runner.os }}-pio-${{ hashFiles('mc/platformio.ini') }}
+          restore-keys: ${{ runner.os }}-pio-
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - run: pip install --upgrade platformio
+      - name: Build
+        working-directory: mc
+        env:
+          FIRMWARE_VERSION: ${{ needs.plan.outputs.fwver }}
+          ENVS: ${{ matrix.envs }}
+        run: |
+          # build.sh empties out/ on every call, so collect each env's files in ../dist
+          mkdir -p ../dist
+          for e in $ENVS; do
+            echo "::group::$e"
+            if bash build.sh build-firmware "$e"; then cp -v out/* ../dist/ 2>/dev/null || echo "::warning::$e produced no files"; else echo "::warning::$e failed"; fi
+            echo "::endgroup::"
+          done
+          ls -la ../dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: fw-${{ matrix.id }}
+          path: dist/*
+          if-no-files-found: warn
+
+  release:
+    needs: [plan, build]
+    if: always() && needs.plan.outputs.build == 'true' && needs.plan.result == 'success'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: fw-*
+          merge-multiple: true
+          path: out
+      - name: Check results
+        id: check
+        env:
+          ENVS: ${{ needs.plan.outputs.envs }}
+          VER: ${{ needs.plan.outputs.fwver }}
+        run: |
+          python3 - <<'PY'
+          import json, os
+          envs = json.loads(os.environ["ENVS"]); ver = os.environ["VER"]
+          files = os.listdir("out") if os.path.isdir("out") else []
+          failed = [e for e in envs if not any(f.startswith(f"{e}-{ver}-") for f in files)]
+          open("failed.txt", "w").write("\n".join(failed))
+          print(f"{len(files)} files, {len(envs) - len(failed)}/{len(envs)} envs built")
+          if failed: print("failed: " + " ".join(failed))
+          with open(os.environ["GITHUB_OUTPUT"], "a") as f:
+              f.write(f"failed_count={len(failed)}\n")
+          if not files or len(failed) * 2 > len(envs):
+              raise SystemExit("too many envs failed to build; not publishing")
+          if not any(f.startswith(f"Heltec_v3_repeater-{ver}-") for f in files):
+              raise SystemExit("Heltec_v3_repeater did not build; not publishing")
+          PY
+          cd out && sha256sum * > SHA256SUMS.txt
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.plan.outputs.tag }}
+          VER: ${{ needs.plan.outputs.version }}
+          UP: ${{ needs.plan.outputs.upstream }}
+          TYPES: ${{ needs.plan.outputs.types }}
+          SIG: ${{ needs.plan.outputs.sig }}
+          FW: ${{ needs.plan.outputs.fwver }}
+          ESM_REPO: ${{ needs.plan.outputs.esm_repo }}
+          ESM_REF: ${{ needs.plan.outputs.esm_ref }}
+          ESM_SHA: ${{ needs.plan.outputs.esm_sha }}
+          ESM_REL: ${{ needs.plan.outputs.esm_release }}
+          ESM_REL_URL: ${{ needs.plan.outputs.esm_release_url }}
+        run: |
+          if [ "$ESM_REPO" = "$GITHUB_REPOSITORY" ]; then TITLE="MeshCore ${VER} + power saving (EasySkyMesh) + serial.ondemand"
+          elif [ -n "$ESM_SHA" ]; then TITLE="MeshCore ${VER} + EasySkyMesh ${ESM_REL:-$ESM_REF} + serial.ondemand"
+          else TITLE="MeshCore ${VER} + serial.ondemand"; fi
+          {
+            echo "## ${TITLE}"
+            echo
+            echo "- MeshCore ${VER}: $(echo "$TYPES" | python3 -c 'import json,sys;print(", ".join(f"[{t["tag"]}]({t["url"]})" for t in json.load(sys.stdin)))')"
+            if [ "$ESM_REPO" = "$GITHUB_REPOSITORY" ]; then
+              echo "- Power saving: EasySkyMesh's power saving (PowerSaving 17.1 feature set, on MeshCore ${VER}) from branch [\`${ESM_REF}\`](https://github.com/${ESM_REPO}/tree/${ESM_REF}) (${ESM_SHA:0:7}): repeater/room server/sensor light sleep, RX duty-cycle (\`radio.rxps\`), GPS power saving, companion BLE sleep, button wake, \`reboot.interval\`. See [serial/README.md](https://github.com/${ESM_REPO}/blob/powersaving-serial/serial/README.md)."
+            elif [ -n "$ESM_SHA" ]; then
+              echo "- EasySkyMesh power saving${ESM_REL:+ ([${ESM_REL}](${ESM_REL_URL}))}: [${ESM_REPO}@${ESM_REF}](https://github.com/${ESM_REPO}/commit/${ESM_SHA}) (${ESM_SHA:0:7}), merged in"
+            fi
+            echo "- Headless Heltec V3 builds (\`Heltec_v3_*_headless\`): no display, OLED held off from boot"
+            echo
+            echo "- **serial.ondemand**: with \`powersaving on\`, a byte on the serial port (UART0 RX) wakes the board, and it stays awake 15 s after the last byte, so the serial CLI keeps working. Send a CR or LF first, wait about 100 ms, then the command."
+            echo "- \`set serial.ondemand on|off\` (default **on**), \`get serial.ondemand\`. Works over serial and remote admin. **off** = stock behaviour."
+            echo "- Applies to ESP32 boards whose serial port is a UART (e.g. Heltec V3). nRF52 and native-USB ESP32 boards are unchanged."
+            echo "- Files: ESP32 \`<board>-${FW}-<commit>.bin\` = update (keeps identity and settings), \`...-merged.bin\` = fresh install (erases). nRF52: \`.zip\` (DFU) / \`.uf2\`."
+            echo
+            if [ -s failed.txt ]; then echo "Not built this time: $(tr '\n' ' ' < failed.txt)"; echo; fi
+            echo "<sub>${SIG}</sub>"
+          } > notes.md
+          if gh release view "$TAG" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release delete "$TAG" -R "$GITHUB_REPOSITORY" --yes --cleanup-tag
+          fi
+          gh release create "$TAG" -R "$GITHUB_REPOSITORY" --target powersaving-serial --title "$TITLE" --notes-file notes.md --latest out/*
+      - name: Report envs that failed to build
+        if: steps.check.outputs.failed_count != '0'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.plan.outputs.tag }}
+        run: |
+          gh issue create -R "$GITHUB_REPOSITORY" --title "Serial build ${TAG}: some boards failed to build" \
+            --body "These envs failed: $(tr '\n' ' ' < failed.txt). Run: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}" \
+            || echo "::warning::could not open an issue (are Issues enabled on this repo?)"
+
+  report-failure:
+    needs: [plan, build, release]
+    if: always() && (needs.plan.result == 'failure' || needs.release.result == 'failure')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Open an issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.plan.outputs.tag }}
+          CONFLICTS: ${{ needs.plan.outputs.conflicts }}
+          VER: ${{ needs.plan.outputs.version }}
+          ESM_REPO: ${{ needs.plan.outputs.esm_repo }}
+          ESM_REF: ${{ needs.plan.outputs.esm_ref }}
+          ESM_SHA: ${{ needs.plan.outputs.esm_sha }}
+        run: |
+          URL="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          if [ -n "$CONFLICTS" ]; then
+            if [ "$ESM_REPO" = "$GITHUB_REPOSITORY" ]; then SRC="power-saving port (${ESM_REF})"; else SRC="EasySkyMesh ${ESM_REF}"; fi
+            T="Sync conflict: ${SRC}@${ESM_SHA:0:7} vs MeshCore ${VER}"
+            B="Merging ${ESM_REPO}@${ESM_REF} (${ESM_SHA}) into stock MeshCore ${VER} conflicts in these files, so nothing was built or released:
+          $(echo "$CONFLICTS" | tr ',' '\n' | sed 's/^/- /')
+
+          To fix (port): merge MeshCore ${VER} into the \`${ESM_REF}\` branch locally, resolve these files, push, then Run workflow.
+          Other options: wait for an EasySkyMesh release based on MeshCore ${VER}; run the workflow with esm_ref set to a newer branch (e.g. PowerSaving-v18); run it with esm_conflicts = prefer-easyskymesh; or run it with powersaving = off (stock + serial.ondemand). Run: $URL"
+            if [ -n "$(gh issue list -R "$GITHUB_REPOSITORY" --state open --search "\"$T\" in:title" --json number -q '.[].number' 2>/dev/null)" ]; then echo "issue already open"; exit 0; fi
+            gh issue create -R "$GITHUB_REPOSITORY" --title "$T" --body "$B" || echo "::warning::could not open an issue (are Issues enabled on this repo?) — conflicts are listed in the run summary"
+            exit 0
+          fi
+          T="Serial build failed${TAG:+ for $TAG}"
+          if [ -n "$(gh issue list -R "$GITHUB_REPOSITORY" --state open --search "\"$T\" in:title" --json number -q '.[].number' 2>/dev/null)" ]; then
+            echo "issue already open"; exit 0
+          fi
+          gh issue create -R "$GITHUB_REPOSITORY" --title "$T" --body "Nothing was released. If the 'List envs and check the patch applies' step failed, upstream changed the code serial.ondemand hooks into; update serial/apply-serial.py. Run: $URL" \
+            || echo "::warning::could not open an issue (are Issues enabled on this repo?)"
