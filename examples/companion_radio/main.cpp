@@ -2,6 +2,11 @@
 #include <Mesh.h>
 #include "MyMesh.h"
 
+#ifdef ESP32_PLATFORM
+#include "esp_pm.h"
+#include "esp_bt.h"
+#endif
+
 // Believe it or not, this std C function is busted on some platforms!
 static uint32_t _atoi(const char* sp) {
   uint32_t n = 0;
@@ -275,6 +280,16 @@ void setup() {
 #endif
 
   the_mesh.startInterface(interface_manager);
+
+#if ENV_INCLUDE_GPS == 1
+  // Apply PowerSaving profile for GPS
+  if (sensors.getLocationProvider() != NULL) {
+    // GPS on and off duration in seconds
+    sensors.getLocationProvider()->setPowerSavingProfile(the_mesh.getNodePrefs()->powersaving_enabled, 600,
+                                                         1800); // Max 10 minutes, 30 minutes
+  }
+#endif
+
   sensors.begin();
 
 #if ENV_INCLUDE_GPS == 1
@@ -287,6 +302,38 @@ void setup() {
 #endif
 
   board.onBootComplete();
+
+#if defined(ESP32_PLATFORM)
+  #if defined(BLE_PIN_CODE) && !CONFIG_IDF_TARGET_ESP32C6
+    // Enable BLE sleep
+    esp_bt_sleep_enable();
+  #endif
+
+#if CONFIG_IDF_TARGET_ESP32C3
+  esp_pm_config_esp32c3_t pm_config;
+#elif CONFIG_IDF_TARGET_ESP32S3
+  esp_pm_config_esp32s3_t pm_config;
+#elif CONFIG_IDF_TARGET_ESP32
+  esp_pm_config_esp32_t pm_config;
+#elif CONFIG_IDF_TARGET_ESP32C6
+  esp_pm_config_t pm_config;
+#endif
+
+  // Configure Power Management
+#if (defined(ARDUINO_USB_CDC_ON_BOOT) && ARDUINO_USB_CDC_ON_BOOT) || defined(ENABLE_USB_INTERFACE)
+  // Disable automatic light sleep for USB CDC Serial and USB Companion
+  pm_config = { .max_freq_mhz = 80, .min_freq_mhz = 40, .light_sleep_enable = false };
+#else
+  pm_config = { .max_freq_mhz = 80, .min_freq_mhz = 40, .light_sleep_enable = true };
+#endif
+
+  esp_err_t errPM = esp_pm_configure(&pm_config);
+  if (errPM == ESP_OK) {
+    Serial.println("Power Management configured successfully");
+  } else {
+    Serial.printf("Power Management failed to configure: %d\r\n", errPM);
+  }
+#endif
 }
 
 void loop() {
@@ -305,6 +352,14 @@ void loop() {
   if (!the_mesh.hasPendingWork()) {
 #if defined(NRF52_PLATFORM)
     board.sleep(0); // nrf ignores seconds param, sleeps whenever possible
+#elif defined(ESP32_PLATFORM)
+  #if defined(BLE_PIN_CODE)
+    if (!bluetooth_interface.isReadBusy() && !bluetooth_interface.isWriteBusy()) { // BLE is not busy
+      vTaskDelay(pdMS_TO_TICKS(10)); // attempt to sleep
+    }
+  #elif defined(ENABLE_USB_INTERFACE)
+    vTaskDelay(pdMS_TO_TICKS(10)); // attempt to sleep
+  #endif
 #endif
   }
 

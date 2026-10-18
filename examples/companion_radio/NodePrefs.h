@@ -58,6 +58,7 @@ public:
   // use ssid from prefs, or fallback to ssid from build flags
   const char* getWifiSSID() const { return wifi_ssid[0] ? wifi_ssid : WIFI_SSID; }
 #endif
+  uint8_t powersaving_enabled = 0; // Power Saving (PowerSaving variant)
 
 private:
   class RadioPrefs : public CommonRadioPrefs {

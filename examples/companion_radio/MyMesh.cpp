@@ -5,6 +5,7 @@
 #include <WiFi.h>
 #endif
 #include <Mesh.h>
+#include "helpers/radiolib/RXPowerSaving.h"
 
 #define CMD_APP_START                 1
 #define CMD_SEND_TXT_MSG              2
@@ -268,6 +269,36 @@ int MyMesh::getInterferenceThreshold() const {
 }
 bool MyMesh::getCADEnabled() const {
   return _prefs.cad_enabled;
+}
+
+static void applyCompanionRxPowerSaving(uint8_t sf, float bw) {
+#ifdef WRAPPER_CLASS
+  RxPowerSavingControl* control = &radio_driver;
+
+  // setRxPowerSaving() rejects out-of-range periods without touching the
+  // wrapper's state, so on any failure we must explicitly stand the duty cycle
+  // down. Otherwise it would stay armed with the *previous* SF/BW timings -
+  // e.g. SF5/BW500 yields rx=655us (below the 1ms minimum), and the radio would
+  // keep sleeping in windows sized for SF11, missing every preamble.
+  uint32_t rx_us = 0;
+  uint32_t sleep_us = 0;
+  bool ok = calcRxPowerSavingLevel(RX_POWERSAVING_BALANCED_LEVEL, sf, bw,
+                                   RX_POWERSAVING_PROFILE_PREAMBLE, &rx_us, &sleep_us,
+                                   rxPowerSavingCaptureCost(control),
+                                   rxPowerSavingTransition(control)) &&
+            control->setRxPowerSaving(true, rx_us, sleep_us);
+  if (!ok) {
+    control->setRxPowerSaving(false, RX_POWERSAVING_DEFAULT_RX_US,
+                              RX_POWERSAVING_DEFAULT_SLEEP_US);
+  }
+  MESH_DEBUG_PRINTLN("RX Power Saving: companion level=%u,preamble=%u,rx=%lu,sleep=%lu,%s",
+                     RX_POWERSAVING_BALANCED_LEVEL, RX_POWERSAVING_PROFILE_PREAMBLE,
+                     (unsigned long)rx_us, (unsigned long)sleep_us,
+                     ok ? "accepted" : "unavailable - continuous RX");
+#else
+  (void)sf;
+  (void)bw;
+#endif
 }
 
 int MyMesh::calcRxDelay(float score, uint32_t air_time) const {
@@ -925,7 +956,13 @@ MyMesh::MyMesh(mesh::Radio &radio, mesh::RNG &rng, mesh::RTCClock &rtc, SimpleMe
   _prefs.tx_power_dbm = LORA_TX_POWER;
   _prefs.gps_enabled = 0;       // GPS disabled by default
   _prefs.gps_interval = 0;      // No automatic GPS updates by default
-  _prefs.radio_fem_rxgain = 1;
+
+// PowerSaving variant
+#ifdef RADIO_FEM_RXGAIN
+  _prefs.radio_fem_rxgain = RADIO_FEM_RXGAIN;
+#else
+  _prefs.radio_fem_rxgain = 0;  // PowerSaving and better signal
+#endif
 #ifdef RADIO_FEM_TXGAIN
   _prefs.radio_fem_txgain = RADIO_FEM_TXGAIN;   // board-specific default for PA
 #else
@@ -940,6 +977,9 @@ MyMesh::MyMesh(mesh::Radio &radio, mesh::RNG &rng, mesh::RTCClock &rtc, SimpleMe
   _prefs.rx_boosted_gain = 1; // enabled by default
 #endif
 #endif
+
+  // PowerSaving defaults
+  _prefs.powersaving_enabled = 1;
 }
 
 void MyMesh::begin() {
@@ -1010,6 +1050,7 @@ void MyMesh::begin() {
 
   MESH_DEBUG_PRINTLN("RX Boosted Gain Mode: %s",
                      radio_driver.getRxBoostedGainMode() ? "Enabled" : "Disabled");
+  applyCompanionRxPowerSaving(_prefs.sf, _prefs.bw);
 }
 
 const char *MyMesh::getNodeName() {
@@ -1448,6 +1489,7 @@ void MyMesh::handleCmdFrame(size_t len) {
       savePrefs();
 
       radio_driver.setParams(_prefs.freq, _prefs.bw, _prefs.sf, _prefs.cr);
+      applyCompanionRxPowerSaving(_prefs.sf, _prefs.bw);
       MESH_DEBUG_PRINTLN("OK: CMD_SET_RADIO_PARAMS: f=%d, bw=%d, sf=%d, cr=%d", freq, bw, (uint32_t)sf,
                          (uint32_t)cr);
 
@@ -1706,6 +1748,9 @@ void MyMesh::handleCmdFrame(size_t len) {
     }
 
     // query other sensors -- target specific
+    if (sensors.getLocationProvider() != NULL && sensors.getLocationProvider()->isPowerSavingEnabled()) {
+      sensors.getLocationProvider()->syncTime(); // Request for GPS sync if GPS is in PowerSaving
+    }
     sensors.querySensors(0xFF, telemetry);
 
     int i = 0;
@@ -2450,5 +2495,10 @@ bool MyMesh::advert() {
 
 // To check if there is pending work
 bool MyMesh::hasPendingWork() const {
-  return _mgr->getOutboundTotal() > 0 || dirty_contacts_expiry != 0;
+  bool calibration_active = false;
+#ifdef WRAPPER_CLASS
+  const RxPowerSavingControl* rxps_control = &radio_driver;
+  calibration_active = rxps_control->isRxPowerSavingCalibrationActive();
+#endif
+  return _mgr->getOutboundTotal() > 0 || dirty_contacts_expiry != 0 || calibration_active;
 }
