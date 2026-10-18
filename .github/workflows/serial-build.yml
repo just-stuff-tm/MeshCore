@@ -227,10 +227,85 @@ jobs:
             if [ -s failed.txt ]; then echo "Not built this time: $(tr '\n' ' ' < failed.txt)"; echo; fi
             echo "<sub>${SIG}</sub>"
           } > notes.md
-          if gh release view "$TAG" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            gh release delete "$TAG" -R "$GITHUB_REPOSITORY" --yes --cleanup-tag
-          fi
-          gh release create "$TAG" -R "$GITHUB_REPOSITORY" --target powersaving-serial --title "$TITLE" --notes-file notes.md --latest out/*
+          export TITLE
+          # Create the release once (as a draft), never delete it, upload only the missing
+          # assets one at a time with a pause and retry/backoff (GitHub's secondary rate
+          # limit answers 403/429), then publish it as latest. A rerun picks up where it stopped.
+          python3 - <<'PY'
+          import json, os, time, urllib.error, urllib.parse, urllib.request
+          T, R, TAG = os.environ["GH_TOKEN"], os.environ["GITHUB_REPOSITORY"], os.environ["TAG"]
+          API = f"https://api.github.com/repos/{R}"
+          def req(method, url, data=None, ctype="application/json", tries=10):
+              delay = 10
+              for _ in range(tries):
+                  rq = urllib.request.Request(url, data=data, method=method, headers={
+                      "Authorization": f"Bearer {T}", "Accept": "application/vnd.github+json",
+                      "Content-Type": ctype, "User-Agent": "serial-build"})
+                  try:
+                      with urllib.request.urlopen(rq, timeout=600) as r:
+                          b = r.read()
+                          return r.status, (json.loads(b) if b else None)
+                  except urllib.error.HTTPError as e:
+                      body = e.read()[:200]
+                      if e.code in (403, 429) or e.code >= 500:
+                          ra = e.headers.get("retry-after")
+                          wait = int(ra) if ra and ra.isdigit() else delay
+                          if e.headers.get("x-ratelimit-remaining") == "0" and e.headers.get("x-ratelimit-reset"):
+                              wait = max(wait, int(e.headers["x-ratelimit-reset"]) - int(time.time()) + 5)
+                          print(f"  HTTP {e.code}, retrying in {wait}s: {body!r}", flush=True)
+                          time.sleep(min(wait, 900)); delay = min(delay * 2, 600); continue
+                      return e.code, body
+                  except Exception as e:
+                      print(f"  {e}, retrying in {delay}s", flush=True)
+                      time.sleep(delay); delay = min(delay * 2, 600)
+              raise SystemExit(f"giving up on {method} {url}")
+          notes = open("notes.md").read()
+          # drafts are not returned by /releases/tags/<tag>, so search the list
+          rel = None
+          for page in range(1, 6):
+              st, lst = req("GET", f"{API}/releases?per_page=100&page={page}")
+              if st != 200 or not lst: break
+              rel = next((x for x in lst if x["tag_name"] == TAG), None)
+              if rel: break
+          if rel:
+              print(f"release {TAG} exists (id {rel['id']}, draft={rel['draft']}); keeping it")
+          else:
+              st, rel = req("POST", f"{API}/releases", json.dumps({"tag_name": TAG,
+                  "target_commitish": "powersaving-serial", "name": os.environ["TITLE"],
+                  "body": notes, "draft": True}).encode())
+              if st != 201: raise SystemExit(f"could not create release: {st} {rel}")
+              print(f"created draft release {TAG} (id {rel['id']})")
+          rid = rel["id"]
+          files = sorted(os.listdir("out"))
+          have, page = {}, 1
+          while True:
+              st, assets = req("GET", f"{API}/releases/{rid}/assets?per_page=100&page={page}")
+              if st != 200 or not assets: break
+              for a in assets: have[a["name"]] = a
+              page += 1
+          for name, a in have.items():
+              size = os.path.getsize(f"out/{name}") if name in files else None
+              # drop broken uploads, stale files from an older build and same-named files that changed
+              if a["state"] != "uploaded" or size is None or size != a["size"]:
+                  print(f"removing asset {name}")
+                  req("DELETE", f"{API}/releases/assets/{a['id']}"); time.sleep(1)
+          have = {n for n, a in have.items() if a["state"] == "uploaded" and n in files
+                  and os.path.getsize(f"out/{n}") == a["size"]}
+          todo = [f for f in files if f not in have]
+          print(f"{len(have)} assets already uploaded, {len(todo)} to upload")
+          for i, f in enumerate(todo, 1):
+              with open(f"out/{f}", "rb") as fh: data = fh.read()
+              st, r = req("POST", f"https://uploads.github.com/repos/{R}/releases/{rid}/assets?name={urllib.parse.quote(f)}",
+                          data, "application/octet-stream")
+              if st == 422: print(f"  {f}: already there")
+              elif st != 201: raise SystemExit(f"upload of {f} failed: {st} {r}")
+              if i % 50 == 0: print(f"  {i}/{len(todo)}", flush=True)
+              time.sleep(1.5)
+          st, r = req("PATCH", f"{API}/releases/{rid}", json.dumps({"name": os.environ["TITLE"],
+              "body": notes, "draft": False, "make_latest": "true"}).encode())
+          if st != 200: raise SystemExit(f"could not publish: {st} {r}")
+          print(f"published {r['html_url']} with {len(r['assets'])} assets")
+          PY
       - name: Report envs that failed to build
         if: steps.check.outputs.failed_count != '0'
         env:
