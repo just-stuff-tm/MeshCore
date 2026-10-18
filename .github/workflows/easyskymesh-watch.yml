@@ -1,0 +1,126 @@
+name: EasySkyMesh watch
+
+# On demand (Actions → EasySkyMesh watch → Run workflow): looks for new EasySkyMesh (IoTThinks) power-saving work and opens one issue per
+# change, so improvements can be ported to the stock-based serial builds.
+# Watches the newest PowerSaving-vNN source branch in IoTThinks/MeshCore (power-saving
+# files only) and new IoTThinks/EasySkyMesh releases. No duplicates: every issue carries
+# a "watch-key" that later runs look for.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  watch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check EasySkyMesh
+        id: watch
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 - <<'PY'
+          import json, os, re, urllib.request, urllib.error
+          API = "https://api.github.com"; REPO = os.environ["GITHUB_REPOSITORY"]; TOK = os.environ["GH_TOKEN"]
+          SRC, REL, STOCK = "IoTThinks/MeshCore", "IoTThinks/EasySkyMesh", "meshcore-dev/MeshCore"
+          # files that make up EasySkyMesh's power saving
+          PS = re.compile(r"^(src/helpers/(ESP32Board|NRF52Board|CommonCLI|CommonRadioPrefs|ArduinoHelpers|ArduinoSerialInterface|BaseSerialInterface|MultiSerialInterface)\.|"
+                          r"src/helpers/radiolib/|src/helpers/sensors/(LocationProvider|MicroNMEALocationProvider|EnvironmentSensorManager)|"
+                          r"src/helpers/(esp32|nrf52|wifi)/.*(Serial|Board|ESPNOW)|src/MeshCore\.h|examples/[^/]+/(main\.cpp|MyMesh\.|SensorMesh\.|UITask\.)|"
+                          r"variants/[^/]+/.*(Board|variant|target)\.(h|cpp)$|lib/|docs/.*(power|rxps))", re.I)
+          def api(path, method="GET", body=None):
+              req = urllib.request.Request(API + path, method=method, data=json.dumps(body).encode() if body is not None else None,
+                    headers={"Authorization": "Bearer " + TOK, "Accept": "application/vnd.github+json", "User-Agent": "esm-watch"})
+              try:
+                  with urllib.request.urlopen(req) as r: return json.load(r)
+              except urllib.error.HTTPError as e:
+                  return {"_error": e.code, "_msg": e.read()[:300].decode("utf-8", "replace")}
+          issues_on = api(f"/repos/{REPO}").get("has_issues", False)
+          seen_bodies = []
+          if issues_on:
+              for page in range(1, 6):
+                  lst = api(f"/repos/{REPO}/issues?state=all&labels=easyskymesh-watch&per_page=100&page={page}")
+                  if not isinstance(lst, list) or not lst: break
+                  seen_bodies += [i.get("body") or "" for i in lst]
+          def seen(key): return any(f"watch-key: {key}" in b for b in seen_bodies)
+          def last_sha(branch):
+              for b in seen_bodies:  # newest first
+                  m = re.search(rf"watch-key: {re.escape(branch)}@([0-9a-f]{{40}})", b)
+                  if m: return m.group(1)
+              return None
+          reports = []
+          # 1. newest PowerSaving-vNN source branch
+          brs = [b["name"] for b in api(f"/repos/{SRC}/branches?per_page=100") if re.match(r"^PowerSaving-v\d+$", b["name"])]
+          br = max(brs, key=lambda n: int(n.split("v")[-1]))
+          head = api(f"/repos/{SRC}/commits/{br}")["sha"]
+          key = f"{br}@{head}"
+          if not seen(key):
+              base = last_sha(br)
+              if base:
+                  cmp = api(f"/repos/{SRC}/compare/{base}...{head}"); base_label = f"the last report ({base[:7]})"
+                  link = f"https://github.com/{SRC}/compare/{base}...{head}"
+              else:  # first report for this branch: everything PowerSaving adds on top of stock's newest release
+                  t = [r["tag_name"] for r in api(f"/repos/{STOCK}/releases?per_page=30") if r["tag_name"].startswith("repeater-v")][0]
+                  cmp = api(f"/repos/{STOCK}/compare/{t}...IoTThinks:{br}"); base_label = f"stock {t}"
+                  link = f"https://github.com/{STOCK}/compare/{t}...IoTThinks:{br}"
+              files = [f for f in cmp.get("files", []) if PS.search(f["filename"])]
+              commits = cmp.get("commits", [])
+              if files:
+                  lines = [f"EasySkyMesh's power-saving source **{SRC}@{br}** changed since {base_label}.", "",
+                           f"**Diff:** {link}", "", f"### Power-saving files changed ({len(files)})"]
+                  lines += [f"- `{f['filename']}` (+{f['additions']} −{f['deletions']}, {f['status']})" for f in files[:120]]
+                  if len(files) > 120: lines.append(f"- … and {len(files) - 120} more")
+                  lines += ["", f"### Commits ({len(commits)})"]
+                  lines += [f"- [{c['sha'][:7]}]({c['html_url']}) {c['commit']['message'].splitlines()[0][:100]}" for c in commits[-60:]]
+                  lines += ["", "Port what's useful into `serial/` on the serial branch. Close this issue when done or not needed.", "", f"<sub>watch-key: {key}</sub>"]
+                  reports.append((f"EasySkyMesh power saving changed: {br} @ {head[:7]}", "\n".join(lines), key))
+              else:
+                  print(f"{br}@{head[:7]}: no power-saving files changed since {base_label}")
+          # 2. new EasySkyMesh release
+          rel = api(f"/repos/{REL}/releases/latest")
+          if "tag_name" in rel:
+              key = f"release:{rel['tag_name']}"
+              if not seen(key):
+                  body = (rel.get("body") or "").strip()
+                  lines = [f"New EasySkyMesh release **{rel['tag_name']}**: {rel.get('name') or ''}", "", rel["html_url"], "",
+                           "### Release notes", "", body[:6000], "", f"<sub>watch-key: {key}</sub>"]
+                  reports.append((f"New EasySkyMesh release: {rel['tag_name']}", "\n".join(lines), key))
+          summary = open(os.environ["GITHUB_STEP_SUMMARY"], "a")
+          if not reports:
+              print("nothing new"); summary.write("Nothing new from EasySkyMesh.\n")
+          for title, body, key in reports:
+              summary.write(f"## {title}\n\n{body}\n\n")
+              if issues_on:
+                  api(f"/repos/{REPO}/labels", "POST", {"name": "easyskymesh-watch", "color": "0e8a16", "description": "Changes in EasySkyMesh power saving to port"})
+                  r = api(f"/repos/{REPO}/issues", "POST", {"title": title, "body": body, "labels": ["easyskymesh-watch"]})
+                  print("issue:", r.get("html_url") or r)
+                  if "_error" in r: raise SystemExit(f"could not open issue: {r}")
+          keys = "-".join(re.sub(r"[^A-Za-z0-9.]+", "_", k) for _, _, k in reports)
+          with open(os.environ["GITHUB_OUTPUT"], "a") as f:
+              f.write(f"keys={keys}\nissues={str(issues_on).lower()}\nnew={len(reports)}\n")
+          PY
+      # Fallback while Issues are turned off on this repo: report each change once with a
+      # failed run (GitHub emails you); already-reported changes are remembered in the Actions cache.
+      - name: Already reported? (Issues off)
+        id: memo
+        if: steps.watch.outputs.issues == 'false' && steps.watch.outputs.new != '0'
+        uses: actions/cache/restore@v4
+        with:
+          path: .esm-watch
+          key: esm-watch-${{ steps.watch.outputs.keys }}
+      - name: Remember this change (Issues off)
+        if: steps.watch.outputs.issues == 'false' && steps.watch.outputs.new != '0' && steps.memo.outputs.cache-hit != 'true'
+        run: mkdir -p .esm-watch && echo "${{ steps.watch.outputs.keys }}" > .esm-watch/seen
+      - name: Save
+        if: steps.watch.outputs.issues == 'false' && steps.watch.outputs.new != '0' && steps.memo.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: .esm-watch
+          key: esm-watch-${{ steps.watch.outputs.keys }}
+      - name: Report (Issues off)
+        if: steps.watch.outputs.issues == 'false' && steps.watch.outputs.new != '0' && steps.memo.outputs.cache-hit != 'true'
+        run: |
+          echo "::error::EasySkyMesh changed (details in the run summary). Turn on Issues (Settings → General → Features) to get one issue per change instead."
+          exit 1
