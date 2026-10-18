@@ -74,7 +74,7 @@ jobs:
                   if len(files) > 120: lines.append(f"- … and {len(files) - 120} more")
                   lines += ["", f"### Commits ({len(commits)})"]
                   lines += [f"- [{c['sha'][:7]}]({c['html_url']}) {c['commit']['message'].splitlines()[0][:100]}" for c in commits[-60:]]
-                  lines += ["", "Port what's useful into `serial/` on the serial branch. Close this issue when done or not needed.", "", f"<sub>watch-key: {key}</sub>"]
+                  lines += ["", "Port what's useful into the `powersaving-port` branch (power saving) or `serial/` on the `powersaving` branch (serial.ondemand, headless). Close this issue when done or not needed.", "", f"<sub>watch-key: {key}</sub>"]
                   reports.append((f"EasySkyMesh power saving changed: {br} @ {head[:7]}", "\n".join(lines), key))
               else:
                   print(f"{br}@{head[:7]}: no power-saving files changed since {base_label}")

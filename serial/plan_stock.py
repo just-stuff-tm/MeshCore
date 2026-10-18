@@ -12,7 +12,7 @@ IN_VER = os.environ.get("IN_VERSION", "").strip().lstrip("v")
 FORCE = os.environ.get("IN_FORCE", "false").lower() == "true"
 PS_MODE = (os.environ.get("IN_PS", "") or "port").strip()   # port | easyskymesh-latest | off
 USE_ESM = PS_MODE != "off"
-PORT_BRANCH = os.environ.get("PS_PORT_BRANCH", "powersaving")      # our port of EasySkyMesh power saving
+PORT_BRANCH = os.environ.get("PS_PORT_BRANCH", "powersaving-port")      # our port of EasySkyMesh power saving
 ESM_REF = os.environ.get("IN_ESM_REF", "").strip()
 ESM_RELEASES = os.environ.get("ESM_RELEASES", "IoTThinks/EasySkyMesh")   # binaries + release notes
 ESM_SOURCE = os.environ.get("ESM_SOURCE", "IoTThinks/MeshCore")         # source branches PowerSaving-vNN

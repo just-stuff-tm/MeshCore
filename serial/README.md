@@ -2,10 +2,10 @@
 
 One repo, three ingredients, built for every board:
 1. **Stock MeshCore**, newest release ([meshcore-dev/MeshCore](https://github.com/meshcore-dev/MeshCore)), currently v1.18.0.
-2. **EasySkyMesh power saving** ([IoTThinks/EasySkyMesh](https://github.com/IoTThinks/EasySkyMesh)), ported onto that release. The port lives on branch [`powersaving`](https://github.com/just-stuff-tm/MeshCore/tree/powersaving).
+2. **EasySkyMesh power saving** ([IoTThinks/EasySkyMesh](https://github.com/IoTThinks/EasySkyMesh)), ported onto that release. The port lives on branch [`powersaving-port`](https://github.com/just-stuff-tm/MeshCore/tree/powersaving-port).
 3. **serial.ondemand**, so the serial console keeps working while power saving is on, plus **headless Heltec V3** builds.
 
-## Power saving (branch `powersaving`)
+## Power saving (branch `powersaving-port`)
 The PowerSaving 17.1 feature set on MeshCore 1.18.0. The branch starts from MeshCore 1.18.0 and carries EasySkyMesh's power-saving commits (from IoTThinks/MeshCore `PowerSaving-v18`, which already sits on 1.18.0), plus our own completion:
 - `PacketManager::getInboundTotal()` and `Dispatcher::isTransmitting()`, so a node doesn't sleep while a received packet waits out its rx delay or while a transmit is in flight;
 - companion power saving from PowerSaving 17.1: ESP32 automatic light sleep (80/40 MHz) for BLE companions, BLE modem sleep, RX duty cycle, GPS power-saving profile (USB companions keep the CPU awake);
@@ -41,22 +41,22 @@ What it does:
 - Firmware version shown by `ver`: `v1.18.0-powersaving-<commit>`.
 
 ## When MeshCore or EasySkyMesh releases
-Press **Run workflow** (Actions → "Serial builds" → Run workflow). You can press **Sync fork** on `main` first to keep the mirror current, but the build doesn't need it: it fetches the newest MeshCore release itself. There is no schedule; builds only run when you press Run workflow or push to `powersaving-serial`.
+Press **Run workflow** (Actions → "Serial builds" → Run workflow). You can press **Sync fork** on `main` first to keep the mirror current, but the build doesn't need it: it fetches the newest MeshCore release itself. There is no schedule; builds only run when you press Run workflow or push to `powersaving`.
 
 What a run does:
 1. finds the newest MeshCore release;
-2. checks it out and merges the `powersaving` branch into it;
-3. **if the merge conflicts**, the run stops, lists the conflicting files in the run summary and opens an issue with the list (when Issues are enabled). Nothing is built or released. To fix: merge the new MeshCore release into `powersaving`, resolve those files, push, and press Run workflow;
+2. checks it out and merges the `powersaving-port` branch into it;
+3. **if the merge conflicts**, the run stops, lists the conflicting files in the run summary and opens an issue with the list (when Issues are enabled). Nothing is built or released. To fix: merge the new MeshCore release into `powersaving-port`, resolve those files, push, and press Run workflow;
 4. otherwise applies `serial/`, builds everything and publishes the release.
 
 If nothing changed since the last release (same MeshCore, power-saving branch and patch), the run ends after a few seconds.
 
-When EasySkyMesh publishes new power-saving work (the watcher below reports it), bring it into `powersaving` and press Run workflow.
+When EasySkyMesh publishes new power-saving work (the watcher below reports it), bring it into `powersaving-port` and press Run workflow.
 
 Run workflow options:
 - **version**: build an older MeshCore release, e.g. `v1.17.0`.
 - **force**: rebuild even if the release exists.
-- **powersaving**: `port` (default, branch `powersaving`); `easyskymesh-latest` merges the source of EasySkyMesh's latest release instead (tag `vX.Y.Z-psNN-serial`); `off` builds MeshCore + serial.ondemand only (tag `vX.Y.Z-serial`).
+- **powersaving**: `port` (default, branch `powersaving-port`); `easyskymesh-latest` merges the source of EasySkyMesh's latest release instead (tag `vX.Y.Z-psNN-serial`); `off` builds MeshCore + serial.ondemand only (tag `vX.Y.Z-serial`).
 - **esm_ref**: use another branch, tag or commit as the power-saving source (in this repo for `port`, in IoTThinks/MeshCore for `easyskymesh-latest`).
 - **esm_conflicts**: `prefer-easyskymesh` resolves conflicting lines with the power-saving side instead of stopping. The result may not compile; boards that fail are listed in the release notes.
 
@@ -65,13 +65,13 @@ Actions → **EasySkyMesh watch** → Run workflow checks for new EasySkyMesh po
 - new commits to power-saving files on the newest `PowerSaving-vNN` branch of IoTThinks/MeshCore,
 - and new EasySkyMesh releases.
 
-For each change it opens one issue (label `easyskymesh-watch`) with the changed files, commits and a diff link, and never opens the same one twice. Issues must be enabled in Settings → General → Features. Until then, a change is reported once as a failed run with the details in the run summary. When it reports something, bring it into `powersaving` and press Run workflow on "Serial builds".
+For each change it opens one issue (label `easyskymesh-watch`) with the changed files, commits and a diff link, and never opens the same one twice. Issues must be enabled in Settings → General → Features. Until then, a change is reported once as a failed run with the details in the run summary. When it reports something, bring it into `powersaving-port` and press Run workflow on "Serial builds".
 
 ## Branches
-- **powersaving-serial** (default branch): the complete firmware source — MeshCore 1.18.0 + power saving + serial.ondemand + headless Heltec V3 envs — with `serial/` (patch and build scripts) and the workflows. Build it locally with `pio run -e Heltec_v3_repeater` (or any env).
-- **powersaving**: the power-saving port alone (MeshCore 1.18.0 + EasySkyMesh power saving). Builds merge this into the newest MeshCore release.
+- **powersaving** (default branch): the complete firmware source — MeshCore 1.18.0 + power saving + serial.ondemand + headless Heltec V3 envs — with `serial/` (patch and build scripts) and the workflows. Build it locally with `pio run -e Heltec_v3_repeater` (or any env).
+- **powersaving-port**: the power-saving port alone (MeshCore 1.18.0 + EasySkyMesh power saving). Builds merge this into the newest MeshCore release.
 - **main**: a clean mirror of meshcore-dev/MeshCore, so **Sync fork** always works.
-- Rulesets block force-pushes and deletion of `powersaving` and `powersaving-serial`.
+- Rulesets block force-pushes and deletion of `powersaving-port` and `powersaving`.
 
 ## How the source is put together
 - `serial/plan_stock.py` picks the MeshCore release and the power-saving commit; `serial/source.py` merges them (a fixed-identity merge commit, so every build job gets the same commit hash) and runs `serial/apply-serial.py`.
@@ -84,4 +84,4 @@ For each change it opens one issue (label `easyskymesh-watch`) with the changed 
 ## Credits and license
 - [MeshCore](https://github.com/meshcore-dev/MeshCore) by Scott Powell / rippleradios.com and contributors, MIT licensed (`license.txt`).
 - Power saving by [IoTThinks / EasySkyMesh](https://github.com/IoTThinks/EasySkyMesh) (PowerSaving firmware and low-power Arduino core, MIT), from [IoTThinks/MeshCore](https://github.com/IoTThinks/MeshCore).
-- The power-saving completion on `powersaving`, `serial.ondemand` and the headless envs (`serial/`) are released under the same MIT license.
+- The power-saving completion on `powersaving-port`, `serial.ondemand` and the headless envs (`serial/`) are released under the same MIT license.

@@ -3,20 +3,20 @@ name: Serial builds (MeshCore + EasySkyMesh power saving + serial.ondemand)
 # 1. takes the newest stock MeshCore release (meshcore-dev/MeshCore, tags
 #    repeater-/room-server-/companion-vX.Y.Z),
 # 2. merges the power saving: by default our port of EasySkyMesh's power saving (branch
-#    "powersaving"); optionally the source of EasySkyMesh's latest release instead
+#    "powersaving-port"); optionally the source of EasySkyMesh's latest release instead
 #    (IoTThinks/EasySkyMesh release PowerSaving17.1 -> IoTThinks/MeshCore branch PowerSaving-v17).
 #    On merge conflicts the run fails, lists the conflicting files and opens an issue,
 # 3. adds serial.ondemand and the headless Heltec V3 envs (serial/apply-serial.py),
 # 4. builds every env and publishes release "vX.Y.Z-powersaving" (serial.ondemand and the
 #    headless envs are listed as features).
-# Runs on demand (Actions → Run workflow) and on every push to powersaving-serial (the default
+# Runs on demand (Actions → Run workflow) and on every push to powersaving (the default
 # branch). After "Sync fork" on main, press Run workflow. The scripts always come from
-# the "powersaving-serial" branch. It only builds when
+# the "powersaving" branch. It only builds when
 # MeshCore, EasySkyMesh or the patch changed; otherwise the run ends after a few seconds.
 
 on:
   push:
-    branches: [powersaving-serial]
+    branches: [powersaving]
   workflow_dispatch:
     inputs:
       version:
@@ -27,7 +27,7 @@ on:
         type: boolean
         default: false
       powersaving:
-        description: 'Power saving: port = our port (branch powersaving); easyskymesh-latest = merge the source of EasySkyMesh''s latest release; off = stock + serial.ondemand only'
+        description: 'Power saving: port = our port (branch powersaving-port); easyskymesh-latest = merge the source of EasySkyMesh''s latest release; off = stock + serial.ondemand only'
         type: choice
         options: [port, easyskymesh-latest, off]
         default: port
@@ -70,7 +70,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: powersaving-serial
+          ref: powersaving
           path: fork
       - name: Find newest MeshCore and EasySkyMesh releases
         id: plan
@@ -119,7 +119,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: powersaving-serial
+          ref: powersaving
           path: fork
       - name: Merge MeshCore + EasySkyMesh and apply serial.ondemand
         env:
@@ -214,7 +214,7 @@ jobs:
             echo
             echo "- MeshCore ${VER}: $(echo "$TYPES" | python3 -c 'import json,sys;print(", ".join(f"[{t["tag"]}]({t["url"]})" for t in json.load(sys.stdin)))')"
             if [ "$ESM_REPO" = "$GITHUB_REPOSITORY" ]; then
-              echo "- Power saving: EasySkyMesh's power saving (PowerSaving 17.1 feature set, on MeshCore ${VER}) from branch [\`${ESM_REF}\`](https://github.com/${ESM_REPO}/tree/${ESM_REF}) (${ESM_SHA:0:7}): repeater/room server/sensor light sleep, RX duty-cycle (\`radio.rxps\`), GPS power saving, companion BLE sleep, button wake, \`reboot.interval\`. See [serial/README.md](https://github.com/${ESM_REPO}/blob/powersaving-serial/serial/README.md)."
+              echo "- Power saving: EasySkyMesh's power saving (PowerSaving 17.1 feature set, on MeshCore ${VER}) from branch [\`${ESM_REF}\`](https://github.com/${ESM_REPO}/tree/${ESM_REF}) (${ESM_SHA:0:7}): repeater/room server/sensor light sleep, RX duty-cycle (\`radio.rxps\`), GPS power saving, companion BLE sleep, button wake, \`reboot.interval\`. See [serial/README.md](https://github.com/${ESM_REPO}/blob/powersaving/serial/README.md)."
             elif [ -n "$ESM_SHA" ]; then
               echo "- EasySkyMesh power saving${ESM_REL:+ ([${ESM_REL}](${ESM_REL_URL}))}: [${ESM_REPO}@${ESM_REF}](https://github.com/${ESM_REPO}/commit/${ESM_SHA}) (${ESM_SHA:0:7}), merged in"
             fi
@@ -275,7 +275,7 @@ jobs:
               print(f"release {TAG} exists (id {rel['id']}, draft={rel['draft']}); keeping it")
           else:
               st, rel = req("POST", f"{API}/releases", json.dumps({"tag_name": TAG,
-                  "target_commitish": "powersaving-serial", "name": os.environ["TITLE"],
+                  "target_commitish": "powersaving", "name": os.environ["TITLE"],
                   "body": notes, "draft": True}).encode())
               if st != 201: raise SystemExit(f"could not create release: {st} {rel}")
               print(f"created draft release {TAG} (id {rel['id']})")
